@@ -1,0 +1,1 @@
+Гороскопы по дням для отдельных знаков с https://www.hyrax.ru/archive1999.shtml
