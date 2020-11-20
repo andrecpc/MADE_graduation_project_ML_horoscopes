@@ -263,19 +263,20 @@ class HoroModel():
         self.output_size = 300
         self.LATENT_DIM = 8
         self.preprocess_pth = preprocess_pth
+        self.device = get_device()
         if gen_model is None:
             self.gen = nn.Sequential(nn.Linear(self.input_size + self.LATENT_DIM, 1024), nn.LeakyReLU(),
                                      nn.Linear(1024, 512), nn.LeakyReLU(),
                                      nn.Linear(512, 512), nn.LeakyReLU(),
-                                     nn.Linear(512, self.output_size)).cuda()
+                                     nn.Linear(512, self.output_size)).to(self.device)
         else:
             self.gen = gen_model
-        self.gen.load_state_dict(torch.load(self.gen_path)[
+        self.gen.load_state_dict(torch.load(self.gen_path, map_location = self.device)[
                                      'gen_state_dict'])
         with open(scaler_path, 'rb') as f:
             self.scaler = pickle.load(f)
         self.kv = WordEmbeddingsKeyedVectors.load(kv_path)
-        self.device = get_device()
+        
 
     def sample_gen_data(self, y):
         noise = torch.randn(y.shape[0], self.LATENT_DIM, dtype=torch.float32, device=self.device)
