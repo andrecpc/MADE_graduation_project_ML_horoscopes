@@ -159,7 +159,7 @@ def get_device():
     return device
 
 
-def predict(model_name, start, length_ = 50, temperature_ = 0.6):
+def predict(model_name, start, length_=50, temperature_=0.6):
     class Args:
         model_type = 'gpt2'
         model_name_or_path = model_name
@@ -188,7 +188,7 @@ def predict(model_name, start, length_ = 50, temperature_ = 0.6):
         args.model_type = args.model_type.lower()
         model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
     except KeyError:
-        raise KeyError("the model {} you specified is not supported. You are welcome to add it and open a PR :)")
+        raise KeyError("the model you specified is not supported. You are welcome to add it and open a PR :)")
 
     tokenizer = tokenizer_class.from_pretrained(args.model_name_or_path)
     model = model_class.from_pretrained(args.model_name_or_path)
@@ -271,12 +271,11 @@ class HoroModel():
                                      nn.Linear(512, self.output_size)).to(self.device)
         else:
             self.gen = gen_model
-        self.gen.load_state_dict(torch.load(self.gen_path, map_location = self.device)[
+        self.gen.load_state_dict(torch.load(self.gen_path, map_location=self.device)[
                                      'gen_state_dict'])
         with open(scaler_path, 'rb') as f:
             self.scaler = pickle.load(f)
         self.kv = WordEmbeddingsKeyedVectors.load(kv_path)
-        
 
     def sample_gen_data(self, y):
         noise = torch.randn(y.shape[0], self.LATENT_DIM, dtype=torch.float32, device=self.device)
@@ -289,10 +288,18 @@ class HoroModel():
                 results.append(self.kv.similar_by_vector(np.array(out.tolist()))[0][0].capitalize())
         return results
 
-    def get_prediction(self, x):
+    def text_processor(self, text):
+        text = text.replace('<s>', ' ').replace('</s>', ' ').replace('\n', ' ').replace('\xa0', ' ').replace('  ', ' ')
+        return text
+
+    def get_prediction(self, x, mode='no_avg'):
         x = self.scaler.transform(x)
         x = torch.from_numpy((x).astype(np.float32)).float().to(self.device)
         gen_output = self.sample_gen_data(x)
+        if mode == 'with_avg':
+            gen_output = torch.cat((gen_output, gen_output.mean(dim=0).reshape(1, -1)))
+        if mode == 'avg_only':
+            gen_output = gen_output.mean(dim=0).reshape(1, -1)
         starts = self.output_to_text(gen_output)
         gpt_output = predict(self.gpt_path, starts)
-        return [x.replace('\n',' ').replace('\xa0',' ').replace('  ',' ') for x in gpt_output]
+        return [self.text_processor(x) for x in gpt_output]
