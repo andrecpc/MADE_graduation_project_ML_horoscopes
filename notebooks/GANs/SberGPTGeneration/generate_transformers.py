@@ -24,6 +24,11 @@ import logging
 import numpy as np
 import torch
 
+import torch.nn as nn
+import pickle
+
+from gensim.models.keyedvectors import WordEmbeddingsKeyedVectors
+
 from transformers import (
     CTRLLMHeadModel,
     CTRLTokenizer,
@@ -38,7 +43,6 @@ from transformers import (
     XLNetLMHeadModel,
     XLNetTokenizer,
 )
-
 
 logging.basicConfig(
     format="%(asctime)s - %(levelname)s - %(name)s -   %(message)s", datefmt="%m/%d/%Y %H:%M:%S", level=logging.INFO,
@@ -147,178 +151,32 @@ def adjust_length_to_model(length, max_sequence_length):
     return length
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--model_type",
-        default=None,
-        type=str,
-        required=True,
-        help="Model type selected in the list: " + ", ".join(MODEL_CLASSES.keys()),
-    )
-    parser.add_argument(
-        "--model_name_or_path",
-        default=None,
-        type=str,
-        required=True,
-        help="Path to pre-trained model or shortcut name selected in the list: " + ", ".join(MODEL_CLASSES.keys()),
-    )
-
-    parser.add_argument("--prompt", type=str, default="")
-    parser.add_argument("--length", type=int, default=20)
-    parser.add_argument("--stop_token", type=str, default="</s>", help="Token at which text generation is stopped")
-
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=1.0,
-        help="temperature of 1.0 has no effect, lower tend toward greedy sampling",
-    )
-    parser.add_argument(
-        "--repetition_penalty", type=float, default=1.0, help="primarily useful for CTRL model; in that case, use 1.2"
-    )
-    parser.add_argument("--k", type=int, default=0)
-    parser.add_argument("--p", type=float, default=0.9)
-
-    parser.add_argument("--padding_text", type=str, default="", help="Padding text for Transfo-XL and XLNet.")
-    parser.add_argument("--xlm_language", type=str, default="", help="Optional language when used with the XLM model.")
-
-    parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
-    parser.add_argument("--no_cuda", action="store_true", help="Avoid using CUDA when available")
-    parser.add_argument("--num_return_sequences", type=int, default=1, help="The number of samples to generate.")
-    args = parser.parse_args()
-
-    args.device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
-    args.n_gpu = 0 if args.no_cuda else torch.cuda.device_count()
-
-    set_seed(args)
-
-    # Initialize the model and tokenizer
-    try:
-        args.model_type = args.model_type.lower()
-        model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
-    except KeyError:
-        raise KeyError("the model {} you specified is not supported. You are welcome to add it and open a PR :)")
-
-    tokenizer = tokenizer_class.from_pretrained(args.model_name_or_path)
-    model = model_class.from_pretrained(args.model_name_or_path)
-    model.to(args.device)
-
-    args.length = adjust_length_to_model(args.length, max_sequence_length=model.config.max_position_embeddings)
-    logger.info(args)
-    generated_sequences = []
-    prompt_text = ""
-    while prompt_text != "stop":
-        while not len(prompt_text):
-            prompt_text = args.prompt if args.prompt else input("Context >>> ")
-
-        # Different models need different input formatting and/or extra arguments
-        requires_preprocessing = args.model_type in PREPROCESSING_FUNCTIONS.keys()
-        if requires_preprocessing:
-            prepare_input = PREPROCESSING_FUNCTIONS.get(args.model_type)
-            preprocessed_prompt_text = prepare_input(args, model, tokenizer, prompt_text)
-            encoded_prompt = tokenizer.encode(
-                preprocessed_prompt_text, add_special_tokens=False, return_tensors="pt", add_space_before_punct_symbol=True
-            )
-        else:
-            encoded_prompt = tokenizer.encode(prompt_text, add_special_tokens=False, return_tensors="pt")
-        encoded_prompt = encoded_prompt.to(args.device)
-
-        output_sequences = model.generate(
-            input_ids=encoded_prompt,
-            max_length=args.length + len(encoded_prompt[0]),
-            temperature=args.temperature,
-            top_k=args.k,
-            top_p=args.p,
-            repetition_penalty=args.repetition_penalty,
-            do_sample=True,
-            num_return_sequences=args.num_return_sequences,
-        )
-
-        # Remove the batch dimension when returning multiple sequences
-        if len(output_sequences.shape) > 2:
-            output_sequences.squeeze_()
-
-        for generated_sequence_idx, generated_sequence in enumerate(output_sequences):
-            print("ruGPT:".format(generated_sequence_idx + 1))
-            generated_sequence = generated_sequence.tolist()
-
-            # Decode text
-            text = tokenizer.decode(generated_sequence, clean_up_tokenization_spaces=True)
-
-            # Remove all text after the stop token
-            text = text[: text.find(args.stop_token) if args.stop_token else None]
-
-            # Add the prompt at the beginning of the sequence. Remove the excess text that was used for pre-processing
-            total_sequence = (
-                prompt_text + text[len(tokenizer.decode(encoded_prompt[0], clean_up_tokenization_spaces=True)) :]
-            )
-
-            generated_sequences.append(total_sequence)
-            # os.system('clear')
-            print(total_sequence)
-        prompt_text = ""
-        if args.prompt:
-            break
-
-    return generated_sequences
+def get_device():
+    if torch.cuda.is_available():
+        device = torch.device('cuda:0')
+    else:
+        device = torch.device('cpu')
+    return device
 
 
-def predict(mtype, model_name, start):
-    #parser = argparse.ArgumentParser()
-    # parser.add_argument(
-    #     "--model_type",
-    #     default= mtype ,
-    #     type=str,
-    #     required=False,
-    #     )
-    
-    # parser.add_argument(
-    #     "--model_name_or_path",
-    #     default=model_name,
-    #     type=str,
-    #     required=False,
-    #     )
-    
-
-    # parser.add_argument("--prompt", type=str, default="")
-    # parser.add_argument("--length", type=int, default=50)
-    # parser.add_argument("--stop_token", type=str, default="</s>", help="Token at which text generation is stopped")
-
-    # parser.add_argument(
-    #     "--temperature",
-    #     type=float,
-    #     default=1.0,
-    #     help="temperature of 1.0 has no effect, lower tend toward greedy sampling",
-    # )
-    # parser.add_argument(
-    #     "--repetition_penalty", type=float, default=1.0, help="primarily useful for CTRL model; in that case, use 1.2"
-    # )
-    # parser.add_argument("--k", type=int, default=5)
-    # parser.add_argument("--p", type=float, default=0.9)
-
-    # parser.add_argument("--padding_text", type=str, default="", help="Padding text for Transfo-XL and XLNet.")
-    # parser.add_argument("--xlm_language", type=str, default="", help="Optional language when used with the XLM model.")
-
-    # parser.add_argument("--seed", type=int, default=42, help="random seed for initialization")
-    # parser.add_argument("--no_cuda", action="store_true", help="Avoid using CUDA when available")
-    # parser.add_argument("--num_return_sequences", type=int, default=1, help="The number of samples to generate.")
+def predict(model_name, start, length_=50, temperature_=0.6):
     class Args:
-      model_type = mtype
-      model_name_or_path = model_name
-      prompt = ''
-      length = 50
-      stop_token = ''
-      temperature = 1.0
-      repetition_penalty = 1.0
-      k = 5
-      p = 0.9
-      padding_text = ''
-      xlm_language = ''
-      seed = 42
-      no_cuda =  False
-      num_return_sequences = 1
-    args=Args()
+        model_type = 'gpt2'
+        model_name_or_path = model_name
+        prompt = ''
+        length = length_
+        stop_token = ''
+        temperature = temperature_
+        repetition_penalty = 1.0
+        k = 5
+        p = 0.9
+        padding_text = ''
+        xlm_language = ''
+        seed = 42
+        no_cuda = False
+        num_return_sequences = 1
+
+    args = Args()
 
     args.device = torch.device("cuda" if torch.cuda.is_available() and not args.no_cuda else "cpu")
     args.n_gpu = 0 if args.no_cuda else torch.cuda.device_count()
@@ -330,7 +188,7 @@ def predict(mtype, model_name, start):
         args.model_type = args.model_type.lower()
         model_class, tokenizer_class = MODEL_CLASSES[args.model_type]
     except KeyError:
-        raise KeyError("the model {} you specified is not supported. You are welcome to add it and open a PR :)")
+        raise KeyError("the model you specified is not supported. You are welcome to add it and open a PR :)")
 
     tokenizer = tokenizer_class.from_pretrained(args.model_name_or_path)
     model = model_class.from_pretrained(args.model_name_or_path)
@@ -339,7 +197,7 @@ def predict(mtype, model_name, start):
     args.length = adjust_length_to_model(args.length, max_sequence_length=model.config.max_position_embeddings)
     logger.info(args)
     generated_sequences = []
-    #prompt_text = 
+    # prompt_text =
     for prompt_text in start:
         while not len(prompt_text):
             prompt_text = args.prompt if args.prompt else input("Context >>> ")
@@ -350,7 +208,8 @@ def predict(mtype, model_name, start):
             prepare_input = PREPROCESSING_FUNCTIONS.get(args.model_type)
             preprocessed_prompt_text = prepare_input(args, model, tokenizer, prompt_text)
             encoded_prompt = tokenizer.encode(
-                preprocessed_prompt_text, add_special_tokens=False, return_tensors="pt", add_space_before_punct_symbol=True
+                preprocessed_prompt_text, add_special_tokens=False, return_tensors="pt",
+                add_space_before_punct_symbol=True
             )
         else:
             encoded_prompt = tokenizer.encode(prompt_text, add_special_tokens=False, return_tensors="pt")
@@ -383,7 +242,7 @@ def predict(mtype, model_name, start):
 
             # Add the prompt at the beginning of the sequence. Remove the excess text that was used for pre-processing
             total_sequence = (
-                prompt_text + text[len(tokenizer.decode(encoded_prompt[0], clean_up_tokenization_spaces=True)) :]
+                    prompt_text + text[len(tokenizer.decode(encoded_prompt[0], clean_up_tokenization_spaces=True)):]
             )
 
             generated_sequences.append(total_sequence)
@@ -396,5 +255,51 @@ def predict(mtype, model_name, start):
     return generated_sequences
 
 
-if __name__ == "__main__":
-    main()
+class HoroModel():
+    def __init__(self, gen_path, gpt_path, scaler_path, kv_path, gen_model=None, preprocess_pth=None):
+        self.gen_path = gen_path
+        self.gpt_path = gpt_path
+        self.input_size = 93
+        self.output_size = 300
+        self.LATENT_DIM = 8
+        self.preprocess_pth = preprocess_pth
+        self.device = get_device()
+        if gen_model is None:
+            self.gen = nn.Sequential(nn.Linear(self.input_size + self.LATENT_DIM, 1024), nn.LeakyReLU(),
+                                     nn.Linear(1024, 512), nn.LeakyReLU(),
+                                     nn.Linear(512, 512), nn.LeakyReLU(),
+                                     nn.Linear(512, self.output_size)).to(self.device)
+        else:
+            self.gen = gen_model
+        self.gen.load_state_dict(torch.load(self.gen_path, map_location=self.device)[
+                                     'gen_state_dict'])
+        with open(scaler_path, 'rb') as f:
+            self.scaler = pickle.load(f)
+        self.kv = WordEmbeddingsKeyedVectors.load(kv_path)
+
+    def sample_gen_data(self, y):
+        noise = torch.randn(y.shape[0], self.LATENT_DIM, dtype=torch.float32, device=self.device)
+        return self.gen(torch.cat((noise, y), dim=1))
+
+    def output_to_text(self, gen_output):
+        results = []
+        if self.preprocess_pth is None:
+            for out in gen_output:
+                results.append(self.kv.similar_by_vector(np.array(out.tolist()))[0][0].capitalize())
+        return results
+
+    def text_processor(self, text):
+        text = text.replace('<s>', ' ').replace('</s>', ' ').replace('\n', ' ').replace('\xa0', ' ').replace('  ', ' ')
+        return text
+
+    def get_prediction(self, x, mode='no_avg'):
+        x = self.scaler.transform(x)
+        x = torch.from_numpy((x).astype(np.float32)).float().to(self.device)
+        gen_output = self.sample_gen_data(x)
+        if mode == 'with_avg':
+            gen_output = torch.cat((gen_output, gen_output.mean(dim=0).reshape(1, -1)))
+        if mode == 'avg_only':
+            gen_output = gen_output.mean(dim=0).reshape(1, -1)
+        starts = self.output_to_text(gen_output)
+        gpt_output = predict(self.gpt_path, starts)
+        return [self.text_processor(x) for x in gpt_output]
