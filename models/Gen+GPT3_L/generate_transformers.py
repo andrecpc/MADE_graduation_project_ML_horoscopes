@@ -159,7 +159,7 @@ def get_device():
     return device
 
 
-def predict(model_name, start, length_=50, temperature_=0.6):
+def predict(model_name, start, length_=np.random.randint(70,100), temperature_=0.6):
     class Args:
         model_type = 'gpt2'
         model_name_or_path = model_name
@@ -167,12 +167,12 @@ def predict(model_name, start, length_=50, temperature_=0.6):
         length = length_
         stop_token = ''
         temperature = temperature_
-        repetition_penalty = 1.0
+        repetition_penalty = 1.2
         k = 5
         p = 0.9
         padding_text = ''
         xlm_language = ''
-        seed = 42
+        seed = np.random.randint(0,100)
         no_cuda = False
         num_return_sequences = 1
 
@@ -297,7 +297,12 @@ class HoroModel():
         x = torch.from_numpy((x).astype(np.float32)).float().to(self.device)
         gen_output = self.sample_gen_data(x)
         if mode == 'with_avg':
-            gen_output = torch.cat((gen_output, gen_output.mean(dim=0).reshape(1, -1)))
+          for i in range(int(gen_output.shape[0]//12)):
+            if i == 0:
+              means = gen_output[i*12:(i+1)*12].mean(dim=0).reshape(1, -1)
+            if i > 0:
+              means = torch.cat((means, gen_output[i*12:(i+1)*12].mean(dim=0).reshape(1, -1)))
+          gen_output = torch.cat((gen_output,means ))
         if mode == 'avg_only':
             gen_output = gen_output.mean(dim=0).reshape(1, -1)
         starts = self.output_to_text(gen_output)
