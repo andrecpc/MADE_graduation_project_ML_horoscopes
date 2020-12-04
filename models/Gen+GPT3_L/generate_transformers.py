@@ -159,7 +159,7 @@ def get_device():
     return device
 
 
-def predict(model_name, start, length_=np.random.randint(70,100), temperature_=0.6):
+def predict(model_name, start, length_=np.random.randint(70,100), temperature_=0.6, pen = 1.2):
     class Args:
         model_type = 'gpt2'
         model_name_or_path = model_name
@@ -167,7 +167,7 @@ def predict(model_name, start, length_=np.random.randint(70,100), temperature_=0
         length = length_
         stop_token = ''
         temperature = temperature_
-        repetition_penalty = 1.2
+        repetition_penalty = pen
         k = 5
         p = 0.9
         padding_text = ''
@@ -276,6 +276,10 @@ class HoroModel():
         with open(scaler_path, 'rb') as f:
             self.scaler = pickle.load(f)
         self.kv = WordEmbeddingsKeyedVectors.load(kv_path)
+		if 'small" in self.gpt_path:
+            self.pen = 1.0
+        else:
+            self.pen = 1.2
 
     def sample_gen_data(self, y):
         noise = torch.randn(y.shape[0], self.LATENT_DIM, dtype=torch.float32, device=self.device)
@@ -306,5 +310,5 @@ class HoroModel():
         if mode == 'avg_only':
             gen_output = gen_output.mean(dim=0).reshape(1, -1)
         starts = self.output_to_text(gen_output)
-        gpt_output = predict(self.gpt_path, starts)
+        gpt_output = predict(self.gpt_path, starts, pen = self.pen)
         return [self.text_processor(x) for x in gpt_output]
